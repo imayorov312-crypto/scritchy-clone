@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SCRITCHY CLONE - Mobile Ready</title>
+    
+    <script src="https://yandex.ru/games/sdk/v2"></script>
+
+    <style>
+        /* Блокируем свайпы, выделение текста и браузерный скролл */
+        body, html { 
+            margin: 0; padding: 0; background: #0a0a0a; color: #fff; 
+            font-family: 'Segoe UI', Tahoma, sans-serif; 
+            overflow: hidden; user-select: none; -webkit-user-select: none;
+            touch-action: none; overscroll-behavior: none;
+        }
+        canvas { display: block; background: radial-gradient(circle, #1a1a1a 0%, #050505 100%); }
+        
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        
+        /* ИСПРАВЛЕНИЕ 1: Добавлено touch-action: auto !important; для кликабельности меню */
+        .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: all; touch-action: auto !important; }
+        
+        .hidden { display: none !important; }
+        
+        /* HUD */
+        #hud { position: absolute; top: 0; width: 100%; padding: 10px; box-sizing: border-box; display: flex; justify-content: space-between; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        #xp-bar-container { position: absolute; top: 0; left: 0; width: 100%; height: 6px; background: #333; }
+        #xp-bar { width: 0%; height: 100%; background: #00f2ff; box-shadow: 0 0 10px #00f2ff; transition: width 0.2s linear; }
+
+        /* Cards */
+        .card-container { display: flex; gap: 15px; margin-top: 20px; flex-wrap: wrap; justify-content: center; }
+        .card { background: #1a1a2e; border: 2px solid #4e4eef; padding: 15px; width: 150px; text-align: center; cursor: pointer; border-radius: 10px; transition: 0.2s; pointer-events: all; }
+        .card:hover, .card:active { transform: scale(1.05); background: #25254d; border-color: #00f2ff; }
+        .card h3 { color: #00f2ff; margin: 0 0 10px 0; font-size: 16px; }
+        .card p { font-size: 12px; color: #ccc; margin: 0; }
+        
+        /* Shop & Menu */
+        .btn { padding: 12px 30px; background: #4e4eef; border: none; color: white; font-size: 18px; cursor: pointer; border-radius: 5px; margin: 8px; transition: 0.2s; pointer-events: all; }
+        .btn:hover, .btn:active { background: #6363ff; transform: scale(1.05); }
+        .stat-item { background: #222; padding: 10px; margin: 5px; width: 90%; max-width: 320px; display: flex; justify-content: space-between; align-items: center; border-radius: 5px; font-size: 14px;}
+        .stat-item button { padding: 5px 10px; background: #4e4eef; border: none; color: white; cursor: pointer; border-radius: 3px; }
+        
+        /* Controls (Lang & Fullscreen) */
+        .top-controls { position: absolute; bottom: 35px; right: 15px; display: flex; gap: 10px; z-index: 20; pointer-events: all; }
+        select { padding: 5px; background: #222; color: #fff; border: 1px solid #4e4eef; border-radius: 5px; outline: none; }
+
+        /* Floating Joystick */
+        #joystick-zone { position: absolute; inset: 0; z-index: 5; pointer-events: all; display: none; }
+        #joystick-base { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; display: none; pointer-events: none; transform: translate(-50%, -50%); box-sizing: border-box;}
+        #joystick-stick { position: absolute; width: 40px; height: 40px; background: rgba(0, 242, 255, 0.5); border-radius: 50%; top: 30px; left: 30px; pointer-events: none; box-shadow: 0 0 10px rgba(0,242,255,0.5); }
+    
+/* Общий стиль для этих двух кнопок */
+.top-controls button {
+    background: rgba(0, 0, 0, 0.5);
+    border: 2px solid #4e4eef;
+    border-radius: 8px;
+    color: white;
+    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    outline: none;
+}
+.top-controls button:active {
+    transform: scale(0.9); /* Анимация нажатия */
+}
+      
+  </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="joystick-zone">
+        <div id="joystick-base"><div id="joystick-stick"></div></div>
+    </div>
+
+    <div class="top-controls">
+        <button id="btn-pause" onclick="togglePause()">⏸️</button>
+        <button id="btn-fullscreen" onclick="toggleFullscreen()">🔲</button>
+       
+    </div>
+
+    <div id="ui-layer">
+        <div id="xp-bar-container"><div id="xp-bar"></div></div>
+        <div id="hud">
+            <div id="lvl-display">LVL: 1</div>
+            <div id="timer-display">00:00</div>
+            <div id="gold-display">💰: 0</div>
+          
+        </div>
+
+        <div id="menu-screen" class="overlay">
+            <h1 style="color: #00f2ff; font-size: 36px; text-shadow: 0 0 15px #00f2ff; text-align: center;">СКРИТЧИ КЛОН</h1>
+            <button class="btn" id="btn-start" onclick="game.start()">НАЧАТЬ ИГРУ</button>
+            <button class="btn" id="btn-shop" onclick="ui.showScreen('shop-screen')">МАГАЗИН</button>
+       <select id="lang-select" onchange="changeLang(this.value)">
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+        </select>
+          
+      </div>
+
+        <div id="shop-screen" class="overlay hidden">
+            <h2 id="title-shop" style="color: #00f2ff;">УЛУЧШЕНИЯ</h2>
+            <div id="gold-total" style="margin-bottom: 20px; font-size: 18px;">Всего золота: 0</div>
+            <div id="shop-items"></div>
+            <button class="btn" id="btn-back" onclick="ui.showScreen('menu-screen')" style="margin-top: 20px;">НАЗАД</button>
+         
+      </div>
+
+        <div id="level-up-screen" class="overlay hidden">
+            <h2 id="title-lvlup" style="color: #00f2ff; text-align: center;">НОВЫЙ УРОВЕНЬ!</h2>
+            <div class="card-container" id="upgrade-cards"></div>
+        </div>
+
+        <div id="game-over-screen" class="overlay hidden">
+            <h1 id="title-over" style="color: #ff4e4e; font-size: 40px; text-shadow: 0 0 20px #ff4e4e;">ВЫ ПОГИБЛИ</h1>
+            <div id="final-stats" style="font-size: 18px; line-height: 1.5; text-align: center; margin-bottom: 20px;"></div>
+            <button class="btn" id="btn-tomenu" onclick="game.returnToMenu()">В МЕНЮ</button>
+        </div>
+    </div>
+
+<script>
+
+/**
+ * 1. ЛОКАЛИЗАЦИЯ (i18n)
+ */
+const DICT = {
+    ru: {
+      	gameTitle: "СКРИТЧИ КЛОН",
+        start: "НАЧАТЬ ИГРУ", shop: "МАГАЗИН", shopTitle: "ПОСТОЯННЫЕ УЛУЧШЕНИЯ",
+        totalGold: "Всего золота: ", back: "НАЗАД", lvlUp: "НОВЫЙ УРОВЕНЬ!", over: "ВЫ ПОГИБЛИ", toMenu: "В ГЛАВНОЕ МЕНЮ",
+        stat_hp: "Здоровье (HP)", stat_dmg: "Урон (DMG)", stat_spd: "Скорость (SPD)", buy: "Купить за ",
+        survived: "Выжито: ", lvlReached: "Уровень: ", goldCol: "Собрано: ",
+        w_gun: "Пушка", w_gun_d: "Стреляет в ближайшего врага", w_gun_u: "Стреляет намного быстрее",
+        w_orb: "Орбиталь", w_orb_d: "Вращающаяся сфера урона", w_orb_u: "+1 Сфера вокруг вас",
+        w_pls: "Энерго-поле", w_pls_d: "Периодически бьет всех вокруг", w_pls_u: "Увеличивает радиус поля",
+        s_spd: "Скорость", s_spd_d: "+10% к скорости бега",
+        s_dmg: "Сила", s_dmg_d: "+15% к базовому урону",
+        s_are: "Магнит", s_are_d: "+30% к радиусу сбора"
+    },
+    en: {
+      gameTitle: "SCRITCHY CLONE",
+        start: "START GAME", shop: "SHOP (UPGRADES)", shopTitle: "PERMANENT UPGRADES",
+        totalGold: "Total Gold: ", back: "BACK", lvlUp: "LEVEL UP!", over: "YOU DIED", toMenu: "MAIN MENU",
+        stat_hp: "Health (HP)", stat_dmg: "Damage (DMG)", stat_spd: "Speed (SPD)", buy: "Buy for ",
+        survived: "Survived: ", lvlReached: "Level: ", goldCol: "Collected: ",
+        w_gun: "Auto-Gun", w_gun_d: "Shoots the closest enemy", w_gun_u: "Shoots much faster",
+        w_orb: "Orbital", w_orb_d: "Rotating damage sphere", w_orb_u: "+1 Sphere around you",
+        w_pls: "Energy Field", w_pls_d: "Periodically hits everyone", w_pls_u: "Increases field radius",
+        s_spd: "Swiftness", s_spd_d: "+10% Move Speed",
+        s_dmg: "Strength", s_dmg_d: "+15% Base Damage",
+        s_are: "Magnet", s_are_d: "+30% Pickup Radius"
+    },
+    zh: {
+          gameTitle: "SCRITCHY CLONE",
+
+        start: "开始游戏", shop: "商店 (升级)", shopTitle: "永久升级",
+        totalGold: "总金币: ", back: "返回", lvlUp: "升级！", over: "你死了", toMenu: "主菜单",
+        stat_hp: "生命值 (HP)", stat_dmg: "伤害 (DMG)", stat_spd: "速度 (SPD)", buy: "购买 ",
+        survived: "存活时间: ", lvlReached: "达到等级: ", goldCol: "收集金币: ",
+        w_gun: "自动枪", w_gun_d: "射击最近的敌人", w_gun_u: "射击速度更快",
+        w_orb: "轨道球", w_orb_d: "旋转的伤害球", w_orb_u: "+1 围绕你的球",
+        w_pls: "能量场", w_pls_d: "定期打击周围的所有人", w_pls_u: "增加场的半径",
+        s_spd: "敏捷", s_spd_d: "+10% 移动速度",
+        s_dmg: "力量", s_dmg_d: "+15% 基础伤害",
+        s_are: "磁铁", s_are_d: "+30% 拾取半径"
+    }
+};
+
+let currentLang = 'ru';
+
+function changeLang(lang) {
+    currentLang = lang;
+    const t = DICT[lang];
+    document.querySelector('#menu-screen h1').innerText = t.gameTitle;
+    document.title = t.gameTitle;
+    document.getElementById('btn-start').innerText = t.start;
+    document.getElementById('btn-shop').innerText = t.shop;
+    document.getElementById('title-shop').innerText = t.shopTitle;
+    document.getElementById('btn-back').innerText = t.back;
+    document.getElementById('title-lvlup').innerText = t.lvlUp;
+    document.getElementById('title-over').innerText = t.over;
+    document.getElementById('btn-tomenu').innerText = t.toMenu;
+    ui.initShop(); // Update shop texts
+}
+
+function getUpgradesConfig() {
+    const t = DICT[currentLang];
+    return {
+        weapon_gun: { name: t.w_gun, desc: t.w_gun_d, upDesc: t.w_gun_u, type: "weapon" },
+        weapon_orbit: { name: t.w_orb, desc: t.w_orb_d, upDesc: t.w_orb_u, type: "weapon" },
+        weapon_pulse: { name: t.w_pls, desc: t.w_pls_d, upDesc: t.w_pls_u, type: "weapon" },
+        stat_speed: { name: t.s_spd, desc: t.s_spd_d, type: "stat" },
+        stat_damage: { name: t.s_dmg, desc: t.s_dmg_d, type: "stat" },
+        stat_area: { name: t.s_are, desc: t.s_are_d, type: "stat" }
+    };
+}
+
+/**
+ * 2. ПОДДЕРЖКА МОБИЛЬНЫХ И ДЖОЙСТИК
+ */
+document.addEventListener('contextmenu', event => event.preventDefault());
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const joyZone = document.getElementById('joystick-zone');
+const joyBase = document.getElementById('joystick-base');
+const joyStick = document.getElementById('joystick-stick');
+let joyData = { active: false, x: 0, y: 0, startX: 0, startY: 0 };
+
+if (isMobile) {
+    joyZone.style.display = 'block';
+
+    joyZone.addEventListener('touchstart', e => {
+        if (!game.running || game.paused) return;
+        joyData.active = true;
+        const touch = e.touches[0];
+        joyData.startX = touch.clientX;
+        joyData.startY = touch.clientY;
+        
+        joyBase.style.display = 'block';
+        joyBase.style.left = touch.clientX + 'px';
+        joyBase.style.top = touch.clientY + 'px';
+        
+        joyStick.style.transform = `translate(0px, 0px)`;
+        joyData.x = 0; joyData.y = 0;
+    }, { passive: false });
+
+    joyZone.addEventListener('touchmove', e => {
+        if (!joyData.active) return;
+        e.preventDefault(); 
+        
+        const touch = e.touches[0];
+        let dx = touch.clientX - joyData.startX;
+        let dy = touch.clientY - joyData.startY;
+        
+        const maxDist = 30; 
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist > maxDist) {
+            dx = (dx / dist) * maxDist;
+            dy = (dy / dist) * maxDist;
+        }
+        
+        joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+        joyData.x = dx / maxDist; 
+        joyData.y = dy / maxDist;
+    }, { passive: false });
+
+    joyZone.addEventListener('touchend', () => {
+        joyData.active = false;
+        joyBase.style.display = 'none';
+        joyData.x = 0; joyData.y = 0;
+    });
+}
+
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => console.log(err));
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+    }
+}
+
+function togglePause() {
+    // Не даем ставить на паузу, если игра не начата или открыто меню повышения уровня
+    if (!game.running) return;
+    const lvlUpScreen = document.getElementById('level-up-screen');
+    if (!lvlUpScreen.classList.contains('hidden')) return;
+
+    // Переключаем статус паузы
+    game.paused = !game.paused;
+    
+    // Меняем иконку на кнопке
+    const btn = document.getElementById('btn-pause');
+    if (game.paused) {
+        btn.innerText = '▶️'; // Значок плей
+    } else {
+        btn.innerText = '⏸️'; // Значок пауза
+    }
+}
+
+// ИСПРАВЛЕНИЕ 2: Блокируем свайпы только если тапаем по канвасу (чтобы кнопки работали)
+document.addEventListener('touchmove', function(event) {
+    event = event.originalEvent || event;
+    if (event.scale !== 1 || (event.target && event.target.tagName.toLowerCase() === 'canvas')) {
+        event.preventDefault();
+    }
+}, { passive: false });
+
+
+/**
+ * 3. ИГРОВОЙ ДВИЖОК
+ */
+const CONFIG = { BASE_XP: 10, XP_EXPONENT: 1.2, ENEMY_SPAWN_CHANCE: 0.05 };
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.resize();
+        
+        window.addEventListener('resize', () => this.resize());
+
+        this.keys = {};
+        window.addEventListener('keydown', e => this.keys[e.code] = true);
+        window.addEventListener('keyup', e => this.keys[e.code] = false);
+        
+        this.loadMeta();
+        this.reset();
+    }
+
+    resize() {
+        this.width = this.canvas.width = window.innerWidth;
+        this.height = this.canvas.height = window.innerHeight;
+    }
+
+    loadMeta() {
+        const saved = localStorage.getItem('scritchy_meta_v2');
+        this.meta = saved ? JSON.parse(saved) : { gold: 0, upgrades: { hp: 0, dmg: 0, spd: 0 } };
+    }
+
+    saveMeta() { localStorage.setItem('scritchy_meta_v2', JSON.stringify(this.meta)); }
+
+    reset() {
+        this.running = false; this.paused = false;
+        this.entities = []; this.projectiles = []; this.pickups = []; this.particles = [];
+        this.player = null;
+        this.timer = 0; this.frame = 0; this.goldInRun = 0;
+    }
+
+    start() {
+        this.reset();
+        this.loadMeta();
+        this.player = new Player();
+        this.running = true;
+        ui.showScreen(null);
+        joyData.x = 0; joyData.y = 0;
+        document.getElementById('btn-pause').innerText = '⏸️';
+        this.loop();
+    }
+
+    returnToMenu() {
+        this.reset();
+        ui.initShop();
+        ui.showScreen('menu-screen');
+       // Яндекс Игры: Исправленный безопасный вызов полноэкранной рекламы с обязательными колбэками
+        if (typeof ysdk !== 'undefined' && ysdk !== null) {
+            ysdk.adv.showFullscreenAdv({
+                callbacks: {
+                    onClose: function(wasShown) {
+                        console.log("Реклама успешно закрыта пользователем.");
+                    },
+                    onError: function(error) {
+                        console.log("Реклама не смогла отобразиться:", error);
+                    }
+                }
+            });
+        }
+    }
+
+    loop() {
+        if (!this.running) return;
+        if (!this.paused) {
+            this.update();
+            this.draw();
+        }
+        requestAnimationFrame(() => this.loop());
+    }
+
+    update() {
+        this.frame++;
+        if (this.frame % 60 === 0) this.timer++;
+
+        this.player.update();
+        
+        if (Math.random() < CONFIG.ENEMY_SPAWN_CHANCE + (this.timer / 1500)) this.spawnEnemy();
+
+        this.entities.forEach((e, i) => {
+            e.update();
+            if (e.hp <= 0) {
+                this.goldInRun += e.gold;
+                this.pickups.push(new Pickup(e.x, e.y, e.xp, e.gold));
+                this.spawnParticles(e.x, e.y, e.color);
+                this.entities.splice(i, 1);
+            }
+        });
+
+        this.projectiles.forEach((p, i) => {
+            p.update();
+            if (p.life <= 0) this.projectiles.splice(i, 1);
+        });
+
+        this.pickups.forEach((p, i) => {
+            if (p.update(this.player)) this.pickups.splice(i, 1);
+        });
+
+        this.particles.forEach((p, i) => {
+            p.update();
+            if (p.alpha <= 0) this.particles.splice(i, 1);
+        });
+
+        ui.updateHUD();
+    }
+
+    draw() {
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        const cx = this.width/2 - this.player.x;
+        const cy = this.height/2 - this.player.y;
+        this.ctx.save();
+        this.ctx.translate(cx, cy);
+
+        this.drawGrid();
+        this.pickups.forEach(p => p.draw(this.ctx));
+        this.entities.forEach(e => e.draw(this.ctx));
+        this.projectiles.forEach(p => p.draw(this.ctx));
+        this.particles.forEach(p => p.draw(this.ctx));
+        this.player.draw(this.ctx);
+
+        this.ctx.restore();
+    }
+
+    drawGrid() {
+        const size = 100;
+        const startX = Math.floor((this.player.x - this.width)/size) * size;
+        const startY = Math.floor((this.player.y - this.height)/size) * size;
+        this.ctx.strokeStyle = "rgba(255,255,255,0.03)";
+        this.ctx.beginPath();
+        for(let x = startX; x < startX + this.width * 2; x += size) {
+            this.ctx.moveTo(x, startY); this.ctx.lineTo(x, startY + this.height * 2);
+        }
+        for(let y = startY; y < startY + this.height * 2; y += size) {
+            this.ctx.moveTo(startX, y); this.ctx.lineTo(startX + this.width * 2, y);
+        }
+        this.ctx.stroke();
+    }
+
+    spawnEnemy() {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.max(this.width, this.height) / 2 + 50;
+        this.entities.push(new Enemy(this.player.x + Math.cos(angle)*dist, this.player.y + Math.sin(angle)*dist, this.timer));
+    }
+
+    spawnParticles(x, y, color) {
+        for(let i=0; i<6; i++) this.particles.push(new Particle(x, y, color));
+    }
+
+    gameOver() {
+        this.running = false;
+        this.meta.gold += this.goldInRun;
+        this.saveMeta();
+        ui.showGameOver();
+        
+       
+    }
+}
+
+class Player {
+    constructor() {
+        this.x = 0; this.y = 0; this.radius = 15;
+        this.hp = 100 + (game.meta.upgrades.hp * 20); this.maxHp = this.hp;
+        this.speed = 3 + (game.meta.upgrades.spd * 0.3);
+        this.xp = 0; this.lvl = 1; this.xpNext = CONFIG.BASE_XP;
+        
+        this.weaponLevels = { weapon_gun: 1, weapon_orbit: 0, weapon_pulse: 0 };
+        this.stats = { dmg: 1 + (game.meta.upgrades.dmg * 0.1), area: 200 };
+        this.cooldowns = { weapon_gun: 0, weapon_pulse: 0 };
+        this.pulseRadius = 120; this.pulseAnim = 0;
+    }
+
+    update() {
+        let mx = 0, my = 0;
+        
+        if (game.keys['KeyW'] || game.keys['ArrowUp']) my -= 1;
+        if (game.keys['KeyS'] || game.keys['ArrowDown']) my += 1;
+        if (game.keys['KeyA'] || game.keys['ArrowLeft']) mx -= 1;
+        if (game.keys['KeyD'] || game.keys['ArrowRight']) mx += 1;
+
+        if (mx === 0 && my === 0 && isMobile && joyData.active) {
+            mx = joyData.x;
+            my = joyData.y;
+        }
+
+        if (mx !== 0 || my !== 0) {
+            const mag = Math.hypot(mx, my);
+            const moveSpd = mag > 1 ? 1 : mag; 
+            this.x += (mx/mag) * this.speed * moveSpd;
+            this.y += (my/mag) * this.speed * moveSpd;
+        }
+
+        if (this.pulseAnim > 0) this.pulseAnim--;
+
+        Object.keys(this.weaponLevels).forEach(w => {
+            if (this.weaponLevels[w] > 0) this.fireWeapon(w);
+        });
+        
+        if (this.hp <= 0) game.gameOver();
+    }
+
+    fireWeapon(type) {
+        if (this.cooldowns[type] > 0) { this.cooldowns[type]--; return; }
+        const lvl = this.weaponLevels[type];
+
+        if (type === 'weapon_gun') {
+            const target = this.getClosestEnemy();
+            if (target) {
+                game.projectiles.push(new Projectile(this.x, this.y, target, this.stats.dmg));
+                this.cooldowns[type] = Math.max(5, 40 - (lvl - 1) * 5);
+            }
+        }
+        
+        if (type === 'weapon_pulse') {
+            this.pulseAnim = 20;
+            game.entities.forEach(e => {
+                if (Math.hypot(e.x - this.x, e.y - this.y) < this.pulseRadius) {
+                    e.hp -= 5 * this.stats.dmg; e.hitTimer = 5;
+                }
+            });
+            this.cooldowns[type] = 120;
+        }
+
+        if (type === 'weapon_orbit') {
+            const baseAngle = game.frame / 20;
+            for(let i=0; i<lvl; i++) {
+                const angle = baseAngle + (Math.PI * 2 / lvl) * i;
+                const ox = this.x + Math.cos(angle) * 80;
+                const oy = this.y + Math.sin(angle) * 80;
+                game.entities.forEach(e => {
+                    if (Math.hypot(e.x - ox, e.y - oy) < 30) {
+                        e.hp -= 0.5 * this.stats.dmg; e.hitTimer = 2;
+                    }
+                });
+            }
+        }
+    }
+
+    getClosestEnemy() {
+        let minD = 500, target = null;
+        game.entities.forEach(e => {
+            const d = Math.hypot(e.x - this.x, e.y - this.y);
+            if (d < minD) { minD = d; target = e; }
+        });
+        return target;
+    }
+
+    addXP(v) {
+        this.xp += v;
+        if (this.xp >= this.xpNext) {
+            this.xp -= this.xpNext;
+            this.lvl++;
+            this.xpNext = Math.floor(this.xpNext * CONFIG.XP_EXPONENT);
+            ui.showLevelUp();
+        }
+    }
+
+    draw(ctx) {
+        if (this.weaponLevels.weapon_pulse > 0) {
+            ctx.fillStyle = "rgba(0, 242, 255, 0.04)";
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.pulseRadius, 0, Math.PI*2); ctx.fill();
+            if (this.pulseAnim > 0) {
+                const p = 1 - (this.pulseAnim / 20);
+                ctx.strokeStyle = `rgba(0, 242, 255, ${1 - p})`;
+                ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.x, this.y, this.pulseRadius * p, 0, Math.PI*2); ctx.stroke();
+                ctx.lineWidth = 1;
+            }
+        }
+
+        if (this.weaponLevels.weapon_orbit > 0) {
+            const orbs = this.weaponLevels.weapon_orbit;
+            const baseAngle = game.frame / 20;
+            ctx.fillStyle = "rgba(255, 255, 0, 0.9)";
+            for(let i=0; i<orbs; i++) {
+                const angle = baseAngle + (Math.PI * 2 / orbs) * i;
+                ctx.beginPath(); ctx.arc(this.x + Math.cos(angle)*80, this.y + Math.sin(angle)*80, 8, 0, Math.PI*2); ctx.fill();
+            }
+        }
+
+        ctx.fillStyle = "#00f2ff";
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+        
+        ctx.fillStyle = "#333"; ctx.fillRect(this.x - 20, this.y + 25, 40, 5);
+        ctx.fillStyle = "#ff4e4e"; ctx.fillRect(this.x - 20, this.y + 25, 40 * (this.hp / this.maxHp), 5);
+    }
+}
+
+class Enemy {
+    constructor(x, y, time) {
+        this.x = x; this.y = y; this.color = `hsl(${Math.random()*360}, 70%, 60%)`;
+        this.hp = 10 + (time * 0.2);
+        this.speed = 1.2 + Math.random() * 0.5;
+        this.xp = 2; this.gold = 1; this.hitTimer = 0;
+    }
+    update() {
+        const d = Math.hypot(game.player.x - this.x, game.player.y - this.y);
+        this.x += ((game.player.x - this.x)/d) * this.speed;
+        this.y += ((game.player.y - this.y)/d) * this.speed;
+        if (this.hitTimer > 0) this.hitTimer--;
+        if (d < 20) game.player.hp -= 0.5;
+    }
+    draw(ctx) {
+        ctx.fillStyle = this.hitTimer > 0 ? "#fff" : this.color;
+        ctx.beginPath(); ctx.moveTo(this.x, this.y - 12); ctx.lineTo(this.x + 10, this.y + 10); ctx.lineTo(this.x - 10, this.y + 10); ctx.fill();
+    }
+}
+
+class Projectile {
+    constructor(x, y, target, dmg) {
+        this.x = x; this.y = y;
+        const d = Math.hypot(target.x - x, target.y - y);
+        this.vx = ((target.x - x)/d) * 10; this.vy = ((target.y - y)/d) * 10;
+        this.dmg = dmg * 10; this.life = 100;
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy; this.life--;
+        game.entities.forEach(e => {
+            if (Math.hypot(e.x - this.x, e.y - this.y) < 20) { e.hp -= this.dmg; e.hitTimer = 5; this.life = 0; }
+        });
+    }
+    draw(ctx) { ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI*2); ctx.fill(); }
+}
+
+class Pickup {
+    constructor(x, y, xp, gold) { this.x = x; this.y = y; this.xp = xp; this.gold = gold; }
+    update(p) {
+        const d = Math.hypot(p.x - this.x, p.y - this.y);
+        if (d < p.stats.area) { this.x += (p.x - this.x) * 0.15; this.y += (p.y - this.y) * 0.15; }
+        if (d < 15) { p.addXP(this.xp); return true; }
+        return false;
+    }
+    draw(ctx) { ctx.fillStyle = "#00f2ff"; ctx.fillRect(this.x-3, this.y-3, 6, 6); }
+}
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y; this.color = color;
+        this.vx = (Math.random()-0.5) * 6; this.vy = (Math.random()-0.5) * 6; this.alpha = 1;
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.alpha -= 0.04; }
+    draw(ctx) { ctx.globalAlpha = Math.max(0, this.alpha); ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y, 3, 3); ctx.globalAlpha = 1; }
+}
+
+/**
+ * 4. ИНТЕРФЕЙС И СОБЫТИЯ
+ */
+const ui = {
+    showScreen(id) {
+        document.querySelectorAll('.overlay').forEach(s => s.classList.add('hidden'));
+        if (id) document.getElementById(id).classList.remove('hidden');
+        joyZone.style.pointerEvents = id ? 'none' : 'all'; 
+    },
+
+    updateHUD() {
+        document.getElementById('xp-bar').style.width = (game.player.xp / game.player.xpNext * 100) + "%";
+        document.getElementById('lvl-display').innerText = `LVL: ${game.player.lvl}`;
+        document.getElementById('gold-display').innerText = `💰: ${game.goldInRun}`;
+        const m = Math.floor(game.timer / 60), s = game.timer % 60;
+        document.getElementById('timer-display').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+    },
+
+    showLevelUp() {
+        game.paused = true;
+        joyData.active = false; joyBase.style.display = 'none'; 
+        
+        const container = document.getElementById('upgrade-cards');
+        container.innerHTML = '';
+        
+        const UPGRADES = getUpgradesConfig();
+        const keys = Object.keys(UPGRADES).sort(() => 0.5 - Math.random()).slice(0, 3);
+        
+        keys.forEach(key => {
+            const up = UPGRADES[key];
+            const isWeapon = up.type === 'weapon';
+            const currentLevel = isWeapon ? game.player.weaponLevels[key] : 0;
+            
+            let title = up.name;
+            let description = up.desc;
+            
+            if (isWeapon && currentLevel > 0) {
+                title += ` (Ур. ${currentLevel + 1})`;
+                description = up.upDesc || description;
+            }
+
+            const el = document.createElement('div');
+            el.className = 'card';
+            el.innerHTML = `<h3>${title}</h3><p>${description}</p>`;
+            
+            const apply = () => {
+                this.applyUpgrade(key);
+                game.paused = false;
+                this.showScreen(null);
+            };
+            el.onclick = apply;
+            
+            container.appendChild(el);
+        });
+        this.showScreen('level-up-screen');
+    },
+
+    applyUpgrade(key) {
+        if (key.startsWith('weapon_')) {
+            game.player.weaponLevels[key]++;
+            if (key === 'weapon_pulse') game.player.pulseRadius += 30;
+        } else {
+            if (key === 'stat_speed') game.player.speed *= 1.1;
+            if (key === 'stat_damage') game.player.stats.dmg += 0.15;
+            if (key === 'stat_area') game.player.stats.area += 80;
+        }
+    },
+
+    showGameOver() {
+        const t = DICT[currentLang];
+        document.getElementById('final-stats').innerHTML = `
+            ${t.survived} <b>${document.getElementById('timer-display').innerText}</b><br>
+            ${t.lvlReached} <b>${game.player.lvl}</b><br>
+            ${t.goldCol} <b style="color: gold;">${game.goldInRun}</b>
+        `;
+        this.showScreen('game-over-screen');
+    },
+
+    buyMeta(id, cost) {
+        if (game.meta.gold >= cost) {
+            game.meta.gold -= cost;
+            game.meta.upgrades[id]++;
+            game.saveMeta();
+            this.initShop();
+        } else {
+            const goldDisplay = document.getElementById('gold-total');
+            goldDisplay.style.color = '#ff4e4e';
+            setTimeout(() => goldDisplay.style.color = '', 300);
+        }
+    },
+    
+    initShop() {
+        const t = DICT[currentLang];
+        const shop = document.getElementById('shop-items');
+        shop.innerHTML = '';
+        const metaUpgrades = [
+            { id: 'hp', name: t.stat_hp, cost: 50 },
+            { id: 'dmg', name: t.stat_dmg, cost: 75 },
+            { id: 'spd', name: t.stat_spd, cost: 60 }
+        ];
+
+        document.getElementById('gold-total').innerText = `${t.totalGold} ${game.meta.gold}`;
+
+        metaUpgrades.forEach(u => {
+            const lvl = game.meta.upgrades[u.id];
+            const currentCost = u.cost * (lvl + 1);
+            const el = document.createElement('div');
+            el.className = 'stat-item';
+            el.innerHTML = `
+                <span>${u.name} [Lvl ${lvl}]</span>
+                <button onclick="ui.buyMeta('${u.id}', ${currentCost})">${t.buy} ${currentCost}</button>
+            `;
+            shop.appendChild(el);
+        });
+    }
+};
+
+// 1. Сначала объявляем глобальную переменную для SDK
+let ysdk = null;
+
+// 2. Инициализируем саму игру (создаются все объекты движка, подгружается localStorage)
+const game = new Game();
+
+// 3. Запускаем инициализацию Яндекс SDK ПОСЛЕ того, как объект игры гарантированно создан
+YaGames.init().then(_sdk => {
+    ysdk = _sdk;
+    
+    // Автоопределение языка платформы с фолбэком (если язык не поддерживается, ставим 'ru')
+    const yaLang = ysdk.environment.i18n.lang;
+    const targetLang = DICT[yaLang] ? yaLang : 'ru';
+    
+    // Безопасно меняем язык (теперь объект game существует, ошибки не будет)
+    changeLang(targetLang);
+    document.getElementById('lang-select').value = targetLang;
+
+    // СТРОГО ПОСЛЕ НАСТРОЙКИ ИНТЕРФЕЙСА сообщаем Яндексу, что игра полностью готова к работе
+    if (ysdk.features && ysdk.features.LoadingAPI) {
+        ysdk.features.LoadingAPI.ready();
+        console.log("GameReady API успешно вызван!");
+    }
+}).catch(err => {
+    console.error('Ошибка инициализации Яндекс SDK:', err);
+    // Фолбэк на случай локального тестирования без SDK Яндекса
+    changeLang('ru');
+});
+</script>
+</body>
+</html>
